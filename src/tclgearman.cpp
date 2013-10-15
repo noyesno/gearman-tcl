@@ -4,6 +4,7 @@
 * by: Sean Zhang
 : at: Oct, 2013
 ***************************************************************/
+// Ref: http://gearman.org/protocol
 
 #include "../generic/dbg.h"
 #include <libgearman/gearman.h>
@@ -17,6 +18,7 @@
 extern "C" {
   gearman_client_st client;
   gearman_worker_st *worker;
+  Tcl_Channel       admin;
 }
 
 
@@ -365,6 +367,145 @@ int TclObjCmd_gearman(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_O
   return TCL_OK;
 }
 
+int TclObjCmd_gearman_admin_create(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+
+  const char *host = Tcl_GetString(objv[2]);
+  in_port_t port = GEARMAN_DEFAULT_TCP_PORT;
+
+  debug_info("connect to %s:%d ...", host, port);
+  Tcl_Channel sock = Tcl_OpenTcpClient(interp, port, host, NULL, 0, 0);
+  if(sock==NULL){
+    log_error("connect to %s:%d fail", host, port);
+    return TCL_ERROR;
+  }
+
+  admin = sock; // TOOD
+  //Tcl_GetChannelOption(interp, sock, optionName, optionValue);
+  Tcl_SetChannelOption(interp, sock, "-buffering", "line");
+
+  // interp alias ...
+  int  admin_idx = 1;
+  char admin_cmd[256];
+  sprintf(admin_cmd, "gearman::admin@%d", admin_idx);
+
+  int _objc = 1;
+  Tcl_Obj *_objv[_objc];
+  _objv[0] = Tcl_NewIntObj(admin_idx);
+  Tcl_CreateAliasObj(interp, admin_cmd, interp, "gearman::admin", _objc, _objv);
+
+  Tcl_SetObjResult(interp, Tcl_NewStringObj(admin_cmd, -1));
+  return TCL_OK;
+}
+
+Tcl_Obj *read_sock_reply(Tcl_Interp *interp, Tcl_Channel sock, const char *command){
+    int n_puts = Tcl_WriteChars(sock,command,-1);
+    Tcl_WriteChars(sock,"\n",-1);
+    // Tcl_Flush(sock);
+    Tcl_Obj *lineObj = Tcl_NewObj();
+    int size = Tcl_GetsObj(sock, lineObj);
+    debug_info("%s", Tcl_GetString(lineObj));
+
+    Tcl_Obj *value = Tcl_NewObj();
+    Tcl_ListObjIndex(interp, lineObj, 1, &value);
+    Tcl_IncrRefCount(value);
+    Tcl_DecrRefCount(lineObj);
+    return value;
+}
+
+int TclObjCmd_gearman_admin(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+
+  const char *subcmd = Tcl_GetString(objv[1]);
+  if(0==strcmp("create", subcmd)) {
+    return TclObjCmd_gearman_admin_create(clientData, interp, objc, objv);
+  }
+
+  const char *actcmd = Tcl_GetString(objv[2]);
+  Tcl_Channel sock = admin;
+  if(0==strcmp("close", actcmd)){
+    debug_info("close");
+    if(TCL_OK != Tcl_Close(interp, sock)){
+      int errorCode = Tcl_GetErrno();
+      log_error("(%d:%s) %s", errorCode, Tcl_ErrnoId(), Tcl_ErrnoMsg(errorCode));
+      return TCL_ERROR;
+    }
+    return TCL_OK;
+  }else if(0==strcmp("version", actcmd)) {                // version
+    Tcl_Obj *result = read_sock_reply(interp, sock, actcmd);
+    Tcl_SetObjResult(interp, result);
+    return TCL_OK;
+  }else if(0==strcmp("status", actcmd)) {                 // status
+    /* Format: FUNCTION\tTOTAL\tRUNNING\tAVAILABLE_WORKERS */
+    int n_puts = Tcl_WriteChars(sock,"status\n",-1);
+    Tcl_Obj *list = Tcl_NewListObj(0, NULL);
+    while(1){
+      Tcl_Obj *lineObj = Tcl_NewObj();
+      int size = Tcl_GetsObj(sock, lineObj);
+      if(0==strcmp(".",Tcl_GetString(lineObj))){
+        break;
+      }
+      Tcl_ListObjAppendElement(interp, list, lineObj);
+      debug_info("%s", Tcl_GetString(lineObj));
+    }
+    Tcl_SetObjResult(interp,list);
+    return TCL_OK;
+  }else if(0==strcmp("workers", actcmd)) {                // workers
+    /* Format: FD IP-ADDRESS CLIENT-ID : FUNCTION ... */
+    int n_puts = Tcl_WriteChars(sock,"workers\n",-1);
+    Tcl_Obj *list = Tcl_NewListObj(0, NULL);
+    while(1){
+      Tcl_Obj *lineObj = Tcl_NewObj();
+      int size = Tcl_GetsObj(sock, lineObj);
+
+      if(0==strcmp(".",Tcl_GetString(lineObj))){
+        break;
+      }
+      Tcl_ListObjAppendElement(interp, list, lineObj);
+      debug_info("%s", Tcl_GetString(lineObj));
+    }
+    Tcl_SetObjResult(interp,list);
+    return TCL_OK;
+  }else if(0==strcmp("maxqueue", actcmd)) {   // maxqueue $function <$size>
+    return TCL_OK;
+  }else if(0==strcmp("shutdown", actcmd)) {   // shutdown
+    return TCL_OK;
+  }else if(0==strcmp("verbose", actcmd)) {    // verbose
+    Tcl_Obj *result = read_sock_reply(interp, sock, actcmd);
+    Tcl_SetObjResult(interp, result);
+    return TCL_OK;
+  }else if(0==strcmp("cancel job", actcmd)) {     // cancel job $id
+    return TCL_OK;
+  }else if(0==strcmp("show unique jobs", actcmd)) {     // show unique jobs
+    return TCL_OK;
+  }else if(0==strcmp("show jobs", actcmd)) {     // show jobs
+    int n_puts = Tcl_WriteChars(sock,"show jobs\n",-1);
+    Tcl_Obj *list = Tcl_NewListObj(0, NULL);
+    while(1){
+      Tcl_Obj *lineObj = Tcl_NewObj();
+      int size = Tcl_GetsObj(sock, lineObj);
+
+      if(0==strcmp(".",Tcl_GetString(lineObj))){
+        break;
+      }
+      Tcl_ListObjAppendElement(interp, list, lineObj);
+      debug_info("%s", Tcl_GetString(lineObj));
+    }
+    Tcl_SetObjResult(interp,list);
+    return TCL_OK;
+  }else if(0==strcmp("drop function", actcmd)) {     // drop function $function
+    return TCL_OK;
+  }else if(0==strcmp("create function", actcmd)) {     // create function $function
+    return TCL_OK;
+  }else if(0==strcmp("getpid", actcmd)) {     // getpid
+    Tcl_Obj *result = read_sock_reply(interp, sock, actcmd);
+    Tcl_SetObjResult(interp, result);
+    return TCL_OK;
+  }else{
+    log_error("Unsupported subcmd %s", actcmd);
+    return TCL_ERROR;
+  }
+
+  return TCL_OK;
+}
 /////// Register Tcl /////////
 extern "C" {
 
@@ -381,9 +522,11 @@ int Tclgearman_Init(Tcl_Interp *interp) {
    return TCL_ERROR;
  }
 #endif
+ Tcl_PkgProvide(interp, "gearman", "0.01");
 
  Tcl_CreateObjCommand(interp, "gearman::client", TclObjCmd_gearman_client, &client, NULL);
  Tcl_CreateObjCommand(interp, "gearman::worker", TclObjCmd_gearman_worker, &client, NULL);
+ Tcl_CreateObjCommand(interp, "gearman::admin",  TclObjCmd_gearman_admin, NULL, NULL);
 
  debug_info("GearmanTcl loaded!");
  return TCL_OK;
