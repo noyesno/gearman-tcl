@@ -11,6 +11,9 @@ set result [$client submit "reverse" "hello Tcl"]
 
 puts "result = $result"
 
+set result [$client submit -background -uuid "ta" "reverse" "hello Tcl"]
+puts "result = $result"
+
 puts [info commands gearman::client*]
 
 set result [$client submit "echoback" "hello Tcl"]

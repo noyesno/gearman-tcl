@@ -21,6 +21,17 @@ extern "C" {
   Tcl_Channel       admin;
 }
 
+//  static gearman_return_t _client_data(gearman_task_st *task)
+//  gearman_client_set_data_fn(&client, _client_data);
+//  gearman_client_set_complete_fn(&client, _client_data);
+static int tcl_gearman_client_data(gearman_task_st *task){
+  if (write(fileno(stdout), gearman_task_data(task), gearman_task_data_size(task)) == -1){
+    //error::perror("write");
+    return TCL_ERROR;
+  }
+
+  return TCL_OK;
+}
 
 
 
@@ -33,13 +44,22 @@ int TclObjCmd_gearman_client_create(ClientData clientData, Tcl_Interp *interp, i
     return TCL_ERROR;
   }
 
-  const char *host = Tcl_GetString(objv[2]);
-  in_port_t port = GEARMAN_DEFAULT_TCP_PORT;
+  const char *host = NULL;
+  in_port_t port = GEARMAN_DEFAULT_TCP_PORT; // :4730
+
+  if(objc>2){
+    host = Tcl_GetString(objv[2]);
+  }else if(getenv("GEARMAN_SERVER")){
+    host = getenv("GEARMAN_SERVER");
+  }else{
+    host="localhost";
+  }
 
   gearman_return_t ret;
-  ret= gearman_client_add_server(&client, host, port);
+  // ret= gearman_client_add_server(&client, host, port);
+  ret = gearman_client_add_servers(&client, host);  // e.g. host1:4730,host2:4730
   if (ret != GEARMAN_SUCCESS) {
-    log_error("Gearman add server FAIL: %s:%d", host, port);
+    log_error("Gearman add server FAIL: %s", host);
     debug_error("%s", gearman_client_error(&client));
     return TCL_ERROR;
   }
@@ -87,7 +107,7 @@ int TclObjCmd_gearman_client_config(ClientData clientData, Tcl_Interp *interp, i
   // objv[4] = value
   for(int j=4; j<objc; j+=2){
     const char *name  = Tcl_GetString(objv[j-1]);
-    if(0==strcmp("-client_id",name)){
+    if(0==strcmp("-client_id",name) || 0==strcmp("-id",name)){
       int size = 0;
       const char *value = Tcl_GetStringFromObj(objv[j], &size);
       debug_info("client config -client_id %s", value);
@@ -101,6 +121,10 @@ int TclObjCmd_gearman_client_config(ClientData clientData, Tcl_Interp *interp, i
       Tcl_GetIntFromObj(interp, objv[4], &timeout);
       gearman_client_set_timeout(&client, timeout);
       return TCL_OK;
+    }else if(0==strcmp("-namespace",name)){
+      int size = 0;
+      const char *value = Tcl_GetStringFromObj(objv[j], &size);
+      gearman_client_set_namespace(&client, value, size); 
     }else{
       debug_info("Unsupported client config %s", name);
       return TCL_ERROR;
@@ -113,20 +137,72 @@ int TclObjCmd_gearman_client_submit(ClientData clientData, Tcl_Interp *interp, i
   gearman_client_st &client = *(gearman_client_st *)clientData;
   gearman_return_t ret;
 
-  const char *command = Tcl_GetString(objv[2]);
-  const char *data    = Tcl_GetString(objv[3]);
-  debug("%s < %s ;# %s %s", command, data, Tcl_GetString(objv[0]), Tcl_GetString(objv[1]));
+  bool        task_background = false;
+  int         task_priority = GEARMAN_JOB_PRIORITY_NORMAL;
+  const char *task_unique  = NULL;
+  for(int i=2; i<objc-2; i++){
+    if(0==strcmp("-background", Tcl_GetString(objv[i]))){
+      task_background = true;
+    }else if(0==strcmp("-high", Tcl_GetString(objv[i]))){
+      task_priority = GEARMAN_JOB_PRIORITY_HIGH;
+    }else if(0==strcmp("-low", Tcl_GetString(objv[i]))){
+      task_priority = GEARMAN_JOB_PRIORITY_LOW;
+    }else if(0==strcmp("-uuid", Tcl_GetString(objv[i]))){
+      task_unique = Tcl_GetString(objv[++i]);
+    }
+  }
+  const char *command  = Tcl_GetString(objv[objc-2]);
+  int   workload_size = -1;
+  const char *workload = Tcl_GetStringFromObj(objv[objc-1], &workload_size);
+
+  void *context = NULL;
+  gearman_task_st *task = NULL;
 
   size_t result_size;
   char *result;
 
-  result= (char *)gearman_client_do(&client, command, NULL,
-                                      data, strlen(data), // TODO
-                                      &result_size, &ret);
+  debug("%s < %s ;# %s %s", command, workload, Tcl_GetString(objv[0]), Tcl_GetString(objv[1]));
+
+  if(task_background){
+    gearman_job_handle_t job_handle; // char job_handle[256];
+    switch(task_priority){
+      case GEARMAN_JOB_PRIORITY_NORMAL  :
+        //gearman_client_add_task_background(&client, task, context, command, unique, workload, workload_size, &ret);
+        ret = gearman_client_do_background(&client, command, task_unique, workload, workload_size, job_handle);
+        break;
+      case GEARMAN_JOB_PRIORITY_HIGH :
+        //gearman_client_add_task_high_background(&client, task, context, command, unique, workload, workload_size, &ret);
+        ret = gearman_client_do_high_background(&client, command, task_unique, workload, workload_size, job_handle);
+        break;
+      case GEARMAN_JOB_PRIORITY_LOW  :
+        //gearman_client_add_task_low_background(&client, task, context, command, unique, workload, workload_size, &ret);
+        ret = gearman_client_do_low_background(&client, command, task_unique, workload, workload_size, job_handle);
+        break;
+    }
+    Tcl_SetObjResult(interp, Tcl_NewStringObj(job_handle, -1));
+    return TCL_OK;
+  } else {
+    switch(task_priority){
+      case GEARMAN_JOB_PRIORITY_NORMAL  :
+        //gearman_client_add_task(&client, task, context, command, unique, workload, workload_size, &ret);
+        result = (char *)gearman_client_do(&client, command, task_unique, workload, workload_size, &result_size, &ret);
+        break;
+      case GEARMAN_JOB_PRIORITY_HIGH :
+        //gearman_client_add_task_high(&client, task, context, command, unique, workload, workload_size, &ret);
+        result = (char *)gearman_client_do_high(&client, command, task_unique, workload, workload_size, &result_size, &ret);
+        break;
+      case GEARMAN_JOB_PRIORITY_LOW  :
+        //gearman_client_add_task_low(&client, task, context, command, unique, workload, workload_size, &ret);
+        result = (char *)gearman_client_do_low(&client, command, task_unique, workload, workload_size, &result_size, &ret);
+        break;
+    }
+  }
+  // ret = gearman_client_run_tasks(&client);
+
   if (ret == GEARMAN_WORK_DATA) {
       debug("GEARMAN_WORK_DATA");
       std::cout.write(result, result_size);
-      free(result);
+      free(result); // MUST free the value
       return TCL_OK;
   } else if (ret == GEARMAN_WORK_STATUS) {
       uint32_t numerator;
@@ -139,14 +215,16 @@ int TclObjCmd_gearman_client_submit(ClientData clientData, Tcl_Interp *interp, i
   } else if (ret == GEARMAN_SUCCESS) {
       // std::cout.write(result, result_size);
       Tcl_SetObjResult(interp, Tcl_NewStringObj(result, result_size));
-      free(result);
-
+      free(result); // MUST free the value
       return TCL_OK;
   } else if (ret == GEARMAN_WORK_FAIL) {
       debug_error("GEARMAN_WORK_FAIL");
       return TCL_ERROR;
   } else if (ret == GEARMAN_COULD_NOT_CONNECT) {
       debug_error("Can not connect to server %s", gearman_client_error(&client));
+      return TCL_ERROR;
+  } else if (ret == GEARMAN_PAUSE) {
+      log_error("GEARMAN_PAUSE found");
       return TCL_ERROR;
   } else {
       debug_error("%s", gearman_client_error(&client));
@@ -237,7 +315,16 @@ int TclObjCmd_gearman_worker_create(ClientData clientData, Tcl_Interp *interp, i
   // objv[1] == "create"
   const char *host = Tcl_GetString(objv[2]);
   in_port_t port = GEARMAN_DEFAULT_TCP_PORT;
-  if (gearman_failed(gearman_worker_add_server(worker, host, port))) {
+
+  if(objc>2){
+    host = Tcl_GetString(objv[2]);
+  }else if(getenv("GEARMAN_SERVER")){
+    host = getenv("GEARMAN_SERVER");
+  }else{
+    host="localhost";
+  }
+
+  if (gearman_failed(gearman_worker_add_servers(worker, host))) {
     std::cerr << gearman_worker_error(worker) << std::endl;
     return TCL_ERROR;
   }
@@ -266,7 +353,7 @@ int TclObjCmd_gearman_worker_config(ClientData clientData, Tcl_Interp *interp, i
   for(int j=4; j<objc; j+=2){
     const char *name  = Tcl_GetString(objv[j-1]);
     debug_info("worker config %s = %s", Tcl_GetString(objv[j-1]), Tcl_GetString(objv[j]));
-    if(0==strcmp("-client_id",name)){
+    if(0==strcmp("-worker_id",name) || 0==strcmp("-id",name)){
       int size = 0;
       const char *value = Tcl_GetStringFromObj(objv[j], &size);
       if (gearman_failed(gearman_worker_set_identifier(worker, value, size))){
@@ -279,6 +366,13 @@ int TclObjCmd_gearman_worker_config(ClientData clientData, Tcl_Interp *interp, i
       Tcl_GetIntFromObj(interp, objv[4], &timeout);
       gearman_worker_set_timeout(worker, timeout);
       return TCL_OK;
+    }else if(0==strcmp("-namespace",name)){
+      int size = 0;
+      const char *value = Tcl_GetStringFromObj(objv[j], &size);
+      gearman_worker_set_namespace(worker, value, size);
+    }else{
+      debug_info("Unsupported worker config %s", name);
+      return TCL_ERROR;
     }
   }
   return TCL_OK;
@@ -288,11 +382,16 @@ int Tcl_gearman_worker_register_task(gearman_worker_st *worker,
    const char *task_name, const char *task_proc=NULL)
 {
   // register function
-  gearman_function_t worker_fn= gearman_function_create(gearman_tcl_worker);
+  gearman_function_t worker_cb = gearman_function_create(gearman_tcl_worker);
+
+
+  //-- if (gearman_failed(gearman_worker_add_function(&worker, task_name, 0, worker_cb, NULL))){
+  //--   // ...
+  //-- }
 
   if (gearman_failed(gearman_worker_define_function(worker,
                                                     task_name, strlen(task_name),
-                                                    worker_fn,
+                                                    worker_cb,
                                                     0,
                                                     Tcl_NewStringObj(task_proc,-1))))
   {
@@ -533,3 +632,7 @@ int Tclgearman_Init(Tcl_Interp *interp) {
 }
 
 }
+
+
+// TOOD: -timeout
+
