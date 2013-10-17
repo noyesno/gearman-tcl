@@ -115,12 +115,12 @@ int TclObjCmd_gearman_client_config(ClientData clientData, Tcl_Interp *interp, i
         std::cerr << gearman_worker_error(worker) << std::endl;
         return TCL_ERROR;
       }
-      return TCL_OK;
+      //return TCL_OK;
     }else if(0==strcmp("-timeout",name)){
       int timeout = 0;
-      Tcl_GetIntFromObj(interp, objv[4], &timeout);
+      Tcl_GetIntFromObj(interp, objv[j], &timeout);
       gearman_client_set_timeout(&client, timeout);
-      return TCL_OK;
+      //return TCL_OK;
     }else if(0==strcmp("-namespace",name)){
       int size = 0;
       const char *value = Tcl_GetStringFromObj(objv[j], &size);
@@ -360,16 +360,24 @@ int TclObjCmd_gearman_worker_config(ClientData clientData, Tcl_Interp *interp, i
         std::cerr << gearman_worker_error(worker) << std::endl;
         return TCL_ERROR;
       }
-      return TCL_OK;
+      // return TCL_OK;
     }else if(0==strcmp("-timeout",name)){
       int timeout = 0;
-      Tcl_GetIntFromObj(interp, objv[4], &timeout);
+      Tcl_GetIntFromObj(interp, objv[j], &timeout);
       gearman_worker_set_timeout(worker, timeout);
-      return TCL_OK;
+      // return TCL_OK;
     }else if(0==strcmp("-namespace",name)){
       int size = 0;
       const char *value = Tcl_GetStringFromObj(objv[j], &size);
       gearman_worker_set_namespace(worker, value, size);
+    }else if(0==strcmp("-blocking",name)){
+      int blocking = 1;
+      Tcl_GetBooleanFromObj(interp, objv[j], &blocking);
+      if(blocking){
+        gearman_worker_remove_options(worker, GEARMAN_WORKER_NON_BLOCKING);
+      }else{
+        gearman_worker_add_options(worker, GEARMAN_WORKER_NON_BLOCKING);
+      }
     }else{
       debug_info("Unsupported worker config %s", name);
       return TCL_ERROR;
@@ -381,6 +389,18 @@ int TclObjCmd_gearman_worker_config(ClientData clientData, Tcl_Interp *interp, i
 int Tcl_gearman_worker_register_task(gearman_worker_st *worker,
    const char *task_name, const char *task_proc=NULL)
 {
+
+  if(task_name==NULL){
+    debug_info("unregiser all functions");
+    gearman_worker_unregister_all(worker);
+    return TCL_OK;
+  }
+
+  if(task_proc==NULL){
+    debug_info("unregiser function %s", task_name);
+    gearman_worker_unregister(worker, task_name);
+    return TCL_OK;
+  }
   // register function
   gearman_function_t worker_cb = gearman_function_create(gearman_tcl_worker);
 
@@ -403,13 +423,67 @@ int Tcl_gearman_worker_register_task(gearman_worker_st *worker,
   return TCL_OK;
 }
 
+// extern void gearman_nap(int arg);
 
-int Tcl_gearman_worker_work(gearman_worker_st *worker){
+void gearman_nap(int arg) {
+  if (arg < 1)
+  { }
+  else
+  {
+#ifdef WIN32
+    sleep(arg/1000000);
+#else
+    struct timespec global_sleep_value= { 0, static_cast<long>(arg * 1000)};
+    nanosleep(&global_sleep_value, NULL);
+#endif
+  }
+}
+
+
+inline int Tcl_gearman_worker_work_callback(Tcl_Interp *interp, gearman_worker_st *worker, Tcl_Obj *callback){
+  if(callback==NULL) return TCL_OK;
+
+  Tcl_GlobalEvalObj(interp, callback);
+  int go = 1;
+  Tcl_GetBooleanFromObj(interp, Tcl_GetObjResult(interp), &go);
+  if(!go){
+    return TCL_BREAK;
+  }
+  return TCL_OK;
+}
+
+int Tcl_gearman_worker_work(Tcl_Interp *interp, gearman_worker_st *worker, Tcl_Obj *callback=NULL){
   // work infinit
+  // GEARMAN_WORKER_TIMEOUT_RETURN
   while(1){
     debug_info("work");
-    if (gearman_failed(gearman_worker_work(worker))){
-      debug_error("work fail", gearman_worker_error(worker));
+    gearman_return_t ret = gearman_worker_work(worker);
+
+    if(GEARMAN_SUCCESS == ret){
+      int ret = Tcl_gearman_worker_work_callback(interp, worker, callback);
+      if(TCL_BREAK == ret){
+        break;
+      }else if(TCL_OK != ret){
+        return ret;
+      }
+      continue;
+    }else if(GEARMAN_IO_WAIT == ret || GEARMAN_NO_JOBS == ret){
+      gearman_nap(10*1000); // in us #define GEARMAN_WORKER_WAIT_TIMEOUT (10 * 1000) /* Milliseconds */
+      // callback
+      int ret = Tcl_gearman_worker_work_callback(interp, worker, callback);
+      if(TCL_BREAK == ret){
+        break;
+      }else if(TCL_OK != ret){
+        return ret;
+      }
+      continue;
+    }else if(GEARMAN_NO_ACTIVE_FDS == ret){   // TODO: gearman_worker_wait(worker);
+      log_info("GEARMAN_NO_ACTIVE_FDS found");
+      sleep(5);
+      // callback
+      continue;
+    }else if(gearman_failed(ret)){
+      debug_error("work fail %d %s", ret, gearman_worker_error(worker));
       break;
     }
   }
@@ -436,11 +510,19 @@ int TclObjCmd_gearman_worker(ClientData clientData, Tcl_Interp *interp, int objc
     return Tcl_gearman_worker_register_task(worker, task_name, task_proc);
   }else if(0==strcmp("unregister", actcmd)) {
     const char *task_name = Tcl_GetString(objv[3]);
-    return Tcl_gearman_worker_register_task(worker, task_name, NULL);
+    if(0==strcmp("-all", task_name)){
+      return Tcl_gearman_worker_register_task(worker, NULL, NULL);
+    }else{
+      return Tcl_gearman_worker_register_task(worker, task_name, NULL);
+    }
   }else if(0==strcmp("work", actcmd)) {
     tcl_worker_context.worker = objv[1];
     tcl_worker_context.interp = interp;
-    return Tcl_gearman_worker_work(worker);
+    Tcl_Obj *callback = NULL;
+    if(objc>3){
+      callback = objv[3];
+    }
+    return Tcl_gearman_worker_work(interp, worker, callback);
   }else if(0==strcmp("config", actcmd)) {
     return TclObjCmd_gearman_worker_config(clientData, interp, objc, objv);
   }else if(0==strcmp("close", actcmd)) {
