@@ -4,12 +4,12 @@ CXXFLAGS = -I/usr/local/include/gearman
 
 TCLSH = tclsh8.5
 
-all: libtclgearman.so libtclgearman.d.so 
+all: lib/libtclgearman.so lib/libtclgearman.d.so
 
-libtclgearman.so: src/tclgearman.cpp
+lib/libtclgearman.so: src/tclgearman.cpp
 	g++ -o $@ -shared -fPIC -DNDEBUG $(CXXFLAGS) $< $(LDFLAGS)
 
-libtclgearman.d.so: src/tclgearman.cpp
+lib/libtclgearman.d.so: src/tclgearman.cpp
 	g++ -o $@ -shared -fPIC $(CXXFLAGS) $< $(LDFLAGS)
 
 tclgearman: src/tclgearman.cpp
