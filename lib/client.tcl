@@ -5,7 +5,7 @@
 # at: Apr, 2014                                                     #
 #===================================================================#
 
-namespace eval german::client {
+namespace eval gearman::client {
   set debug 0
 
   proc debug {args} {
@@ -56,23 +56,27 @@ namespace eval german::client {
   init
 
 
-  proc connect {host {port 4730}} {
-    variable sock
+  proc connect {this host {port 4730}} {
+    variable {}
 
     set sock [socket $host $port]
     #fconfigure $sock -blocking 0
-    #fileevent $sock readable [list german::client::recv]
+    #fileevent $sock readable [list gearman::client::recv]
+
+    set ($this,sock) $sock
+    puts "set ($this,sock) $sock"
   }
 
-  proc close {} {
-    variable sock
+  proc close {this} {
+    variable {}
 
-    ::close $sock
+    ::close $($this,sock)
   }
 
 
-  proc send {type args} {
-    variable sock
+  proc send {this type args} {
+    variable {}
+    set sock $($this,sock)
 
     set data [join $args "\0"]
     #set data [encoding convertto utf-8 $data]
@@ -84,8 +88,10 @@ namespace eval german::client {
     flush $sock
   }
 
-  proc recv {} {
-    variable sock
+  proc recv {this} {
+    variable {}
+    set sock $($this,sock)
+
     variable lut
 
     set head [read $sock 12]
@@ -112,9 +118,11 @@ namespace eval german::client {
 
 
 
-proc german::client::submit_job {args} {
-  variable sock
+proc gearman::client::submit_job {this args} {
+  variable {}
   variable protocol
+
+  set sock $($this,sock)
 
   set task [lindex $args end-1]
   set data [lindex $args end]
@@ -142,17 +150,17 @@ proc german::client::submit_job {args} {
   }
 
   set cmd_id [lindex $protocol($cmd) 0]
-  send $cmd_id $task $kargs(-uuid) $data
+  send $this $cmd_id $task $kargs(-uuid) $data
 
   if {$kargs(-background)} {
-    set job [recv]
+    set job [recv $this]
     debug "BG JOB: $job"
     return $job
   }
 
   set data ""
   while 1 {
-    set res [recv]
+    set res [recv $this]
     switch [lindex $res 0] {
       "JOB_CREATED" { debug "JOB $res" }
       "WORK_DATA"   {
@@ -169,3 +177,27 @@ proc german::client::submit_job {args} {
   debug "data = $data"
   return $data
 }
+
+proc gearman::client::create {args} {
+  variable {}
+  set this [incr (this)]
+  interp alias {} ::gearman::client'$this {} ::gearman::client $this
+  connect $this {*}$args
+  return gearman::client'$this
+}
+
+proc gearman::client::unknown {args} {
+  set t [lindex $args 1]
+  lset args 1 [lindex $args 2]
+  lset args 2 $t
+
+  return $args
+}
+
+namespace eval gearman::client {
+  namespace ensemble create \
+    -map        {submit "submit_job"} \
+    -subcommand {"create" "submit" "close"} \
+    -unknown ::gearman::client::unknown
+}
+
