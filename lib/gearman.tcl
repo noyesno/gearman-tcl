@@ -22,7 +22,7 @@ namespace eval gearman::admin {
          "workers"   "read_as_list workers"
          "show jobs" "read_as_list {show jobs}"
       } \
-      -subcommand {"create" "close" "version" "getpid" "verbose" "status" "workers" "show jobs"} \
+      -subcommand {"create" "close" "version" "getpid" "verbose" "status" "workers" "show jobs" "cancel" "drop"} \
       -unknown [namespace current]::unknown
 }
 
@@ -38,6 +38,30 @@ proc gearman::admin::close {} {
   variable sock
 
   ::close $sock
+}
+
+proc gearman::admin::cancel {type jobid} {
+  variable sock
+
+  if {$type ne "job"} {
+    return
+  }
+
+  puts $sock "cancel job $jobid"
+  gets $sock line
+  return $line
+}
+
+proc gearman::admin::drop {type func} {
+  variable sock
+
+  if {$type ne "function"} {
+    return
+  }
+
+  puts $sock "drop function $func"
+  gets $sock line
+  return $line
 }
 
 # OK $value
