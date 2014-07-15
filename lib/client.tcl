@@ -64,7 +64,6 @@ namespace eval gearman::client {
     #fileevent $sock readable [list gearman::client::recv]
 
     set ($this,sock) $sock
-    puts "set ($this,sock) $sock"
   }
 
   proc close {this} {
@@ -88,16 +87,68 @@ namespace eval gearman::client {
     flush $sock
   }
 
-  proc recv {this} {
+  proc recv {this {timeout 3000}} {
     variable {}
     set sock $($this,sock)
 
     variable lut
 
-    set head [read $sock 12]
-    binary scan $head a4II magic type size
-    debug "$magic $type $size"
-    set data [read $sock $size]
+    #-- fconfigure $sock -blocking 0
+    #-- if {[chan pending input $sock]<12} {
+    #--   puts "DEBUG: pending = [chan pending input $sock]"
+    #--   fconfigure $sock -blocking 1
+    #--   return ""
+    #-- }
+
+
+    # variable buffer ""   ;# TODO ($this, buffer)
+    upvar 0 ($this,buffer) buffer
+    set buffer ""
+
+    # set timeout 3000 ;# 3000ms
+    set expire [expr {[clock milliseconds] + $timeout}]
+    fconfigure $sock -blocking 0
+    set stat "ok"
+    while {1} {
+      if {[clock milliseconds]>$expire} {
+        # puts "timeout"
+        set stat "timeout"
+        break
+      }
+      set size 12
+      if {[string length $buffer]<$size} {
+        append buffer [read $sock [expr {$size-[string length $buffer]}]]
+      }
+      if {[string length $buffer]<$size} {
+        # recv $this 0
+        continue
+      }
+
+      binary scan $buffer a4II magic type size
+      debug "$magic $type $size"
+
+      set size [expr {$size+12}]
+      if {[string length $buffer]<$size} {
+        append buffer [read $sock [expr {$size-[string length $buffer]}]]
+      }
+
+      if {[string length $buffer]<$size} {
+        # recv $this 0
+        continue
+      }
+
+      break;
+    }
+    fconfigure $sock -blocking 1
+
+    if {$stat ne "ok"} {
+      return $stat
+    }
+
+    # set data [read $sock $size]
+    binary scan $buffer x12a* data
+
+
     binary scan $data H* hex
     debug "bytes = $hex"
     #set data [encoding convertfrom utf-8 $data]
@@ -118,7 +169,7 @@ namespace eval gearman::client {
 
 
 
-proc gearman::client::submit_job {this args} {
+proc gearman::client::submit {this args} {
   variable {}
   variable protocol
 
@@ -127,17 +178,18 @@ proc gearman::client::submit_job {this args} {
   set task [lindex $args end-1]
   set data [lindex $args end]
 
-  array set kargs {-priority "" -background 0 -uuid ""}
+  array set kargs {-priority "" -background 0 -uuid "" -timeout 3000}
 
   set argc [llength $args]
   for {set i 0 ; incr argc -2} {$i<$argc} {incr i} {
      set arg [lindex $args $i]
      switch -glob -- $arg {
-       -back* {set kargs(-background) 1}
-       -high  {set kargs(-priority) "high"}
-       -low   {set kargs(-priority) "low"}
-       -id    -
-       -uuid  {set kargs(-uuid) [lindex $args [incr i]}
+       -back*   {set kargs(-background) 1}
+       -high    {set kargs(-priority) "high"}
+       -low     {set kargs(-priority) "low"}
+       -id      -
+       -uuid    {set kargs(-uuid) [lindex $args [incr i]}
+       -timeout {set kargs(-timeout) [lindex $args [incr i]}
      }
   }
 
@@ -158,10 +210,12 @@ proc gearman::client::submit_job {this args} {
     return $job
   }
 
+  #TODO: add timeout
   set data ""
-  while 1 {
-    set res [recv $this]
-    switch [lindex $res 0] {
+  for {set n 0} {1} {incr n} {
+    set res [recv $this $kargs(-timeout)]
+
+    switch -- [lindex $res 0] {
       "JOB_CREATED" { debug "JOB $res" }
       "WORK_DATA"   {
         append data [lindex $res end]
@@ -170,8 +224,16 @@ proc gearman::client::submit_job {this args} {
         debug "STATUS: ..."
         #TODO# $kargs(-progress)
       }
+      "WORK_COMPLETE" -
       "NO_JOB"      { break }
-      default       { break }
+      "WORK_FAIL"        -
+      "WORK_EXCEPTION"   -
+      "WORK_WARNING"     -
+      default       {
+        # TODO:
+        set data $res
+        break
+      }
     }
   }
   debug "data = $data"
@@ -181,10 +243,15 @@ proc gearman::client::submit_job {this args} {
 proc gearman::client::create {args} {
   variable {}
   set this [incr (this)]
-  interp alias {} ::gearman::client'$this {} ::gearman::client $this
+  interp alias {} ::gearman::client'$this {} ::gearman::client::call $this
   connect $this {*}$args
   return gearman::client'$this
 }
+
+proc gearman::client::call {this subcmd args} {
+  gearman::client::$subcmd $this {*}$args
+}
+
 
 proc gearman::client::unknown {args} {
   set t [lindex $args 1]
@@ -196,7 +263,7 @@ proc gearman::client::unknown {args} {
 
 namespace eval gearman::client {
   namespace ensemble create \
-    -map        {submit "submit_job"} \
+    -map        {submit "submit"} \
     -subcommand {"create" "submit" "close"} \
     -unknown ::gearman::client::unknown
 }
