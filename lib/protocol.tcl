@@ -33,6 +33,9 @@ interp alias {} gearman::admin::debug {}    gearman::debug
 #----------------------------------------------------------------#
 
 namespace eval gearman::protocol {
+  # NO_JOB               {  10     {}         }
+  # NO_JOB               {  10     {job data} }
+  # TODO: bug workaround, treat client NO_JOB as WORK_COMPLETE
   array set protocol {
       ERROR                {  19     {code text} -                                                                                        }
 
@@ -56,7 +59,7 @@ namespace eval gearman::protocol {
       GRAP_JOB             {   9     {}                   {NO_JOB JOB_ASSIGN}       }
       GRAP_JOB_UNIQ        {  30     {}                   {NO_JOB JOB_ASSIGN_UNIQ}  }
 
-      NO_JOB               {  10     -                                   }
+      NO_JOB               {  10     {job data}                                     }
       JOB_ASSIGN           {  11     {job func data}      -                         }
       JOB_ASSIGN_UNIQ      {  31     {job func uuid data} -                         }
 
@@ -108,7 +111,7 @@ namespace eval gearman::protocol {
     variable {}
 
     set this [incr (this)]
-    
+
     set sock [socket $host $port]
     #fconfigure $sock -blocking 0
     #fileevent $sock readable [list gearman::client::recv]
@@ -183,6 +186,8 @@ namespace eval gearman::protocol {
       binary scan $buffer a4II magic type size
       debug "$magic $type $size"
 
+      # assert $magic eq "\0RES" ;# TODO
+
       set size [expr {$size+12}]
       if {[string length $buffer]<$size} {
         append buffer [read $sock [expr {$size-[string length $buffer]}]]
@@ -212,14 +217,43 @@ namespace eval gearman::protocol {
     binary scan $data H* hex
     debug "bytes body = $hex"
     #set data [encoding convertfrom utf-8 $data]
-    # assert $magic eq "\0RES"
     set proto [gearman::protocol::lookup $type]
     set type_text [lindex $proto 0]
     debug "RES $type $size $type_text [join [split $data "\0"]]"
 
     set values [lindex $proto 1 1]
+    debug "packet values = $values"
+    set retc  [llength $values] ;# number of return values
+    set retv [split_limit $data "\0" $retc]
 
-    return [list $type_text [split $data "\0"]] ;# TODO: check $data number 
+    if {$retc != [llength $retv]} {
+      error "Incorrect number of result values"
+    }
+
+    return [list $type_text $retv]
+  }
+
+  proc split_limit {data {sp " "} {limit -1}} {
+    set result [list]
+
+    if {$limit==0} {return $result}
+
+    set start 0
+    for {set i 1} {$limit<0 || $i<$limit} {incr i} {
+      set pos [string first $sp $data $start]
+      if {$pos<0} {
+	break
+      }
+
+      set val [string range $data $start [incr pos -1]]
+      lappend result $val
+
+      set start [incr pos 2]
+    }
+
+    lappend result [string range $data $start end]
+
+    return $result
   }
 }
 
