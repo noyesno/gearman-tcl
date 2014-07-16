@@ -15,28 +15,32 @@ namespace eval gearman::client {
   }
 
   array set protocol {
-      SUBMIT_JOB           {   7     {JOB_CREATED WORK_DATA WORK_WARNING WORK_STATUS WORK_COMPLETE WORK_FAIL WORK_EXCEPTION}  }
-      JOB_CREATED          {   8     -                                                                                        }
-      NO_JOB               {  10     -                                                                                        }
-      WORK_STATUS          {  12     -                                                                                        }
-      WORK_COMPLETE        {  13     -                                                                                        }
-      WORK_FAIL            {  14     -                                                                                        }
-      GET_STATUS           {  15     STATUS_RES                                                                               }
-      ECHO_REQ             {  16     ECHO_RES                                                                                 }
-      ECHO_RES             {  17     -                                                                                        }
-      SUBMIT_JOB_BG        {  18     JOB_CREATED                                                                              }
-      ERROR                {  19     -                                                                                        }
-      STATUS_RES           {  20     -                                                                                        }
-      SUBMIT_JOB_HIGH      {  21     {JOB_CREATED WORK_DATA WORK_WARNING WORK_STATUS WORK_COMPLETE WORK_FAIL WORK_EXCEPTION}  }
-      OPTION_REQ           {  26     OPTION_RES                                                                               }
-      OPTION_RES           {  27     -                                                                                        }
-      WORK_DATA            {  28     -                                                                                        }
-      WORK_WARNING         {  29     -                                                                                        }
-      SUBMIT_JOB_HIGH_BG   {  32     {JOB_CREATED}                                                                            }
-      SUBMIT_JOB_LOW       {  33     {JOB_CREATED WORK_DATA WORK_WARNING WORK_STATUS WORK_COMPLETE WORK_FAIL WORK_EXCEPTION}  }
-      SUBMIT_JOB_LOW_BG    {  34     {JOB_CREATED}                                                                            }
-      SUBMIT_JOB_SCHED     {  35     {JOB_CREATED}                                                                            }
-      SUBMIT_JOB_EPOCH     {  36     {JOB_CREATED}                                                                            }
+      ERROR                {  19     {code text} -                                                                                        }
+
+      SUBMIT_JOB           {   7     {func uuid data} {JOB_CREATED WORK_DATA WORK_WARNING WORK_STATUS WORK_COMPLETE WORK_FAIL WORK_EXCEPTION}  }
+      SUBMIT_JOB_LOW       {  33     {func uuid data} {JOB_CREATED WORK_DATA WORK_WARNING WORK_STATUS WORK_COMPLETE WORK_FAIL WORK_EXCEPTION}  }
+      SUBMIT_JOB_HIGH      {  21     {func uuid data} {JOB_CREATED WORK_DATA WORK_WARNING WORK_STATUS WORK_COMPLETE WORK_FAIL WORK_EXCEPTION}  }
+      SUBMIT_JOB_BG        {  18     {func uuid data} JOB_CREATED        }
+      SUBMIT_JOB_LOW_BG    {  34     {func uuid data} {JOB_CREATED}      }
+      SUBMIT_JOB_HIGH_BG   {  32     {func uuid data} {JOB_CREATED}      }
+      SUBMIT_JOB_SCHED     {  35     {TODO} {JOB_CREATED}                }
+      SUBMIT_JOB_EPOCH     {  36     {TODO} {JOB_CREATED}                }
+
+      JOB_CREATED          {   8     {job} -                             }
+      WORK_DATA            {  28     {job data} -                        }
+      WORK_COMPLETE        {  13     {job data} -                        }
+      WORK_STATUS          {  12     {job numer denom} -                 }
+      WORK_WARNING         {  29     {job data} -                        }
+      WORK_FAIL            {  14     {job}      -                        }
+      WORK_EXCEPTION       {  25     {job data} -                        }
+
+      NO_JOB               {  10     -                                   }
+      GET_STATUS           {  15     {job} STATUS_RES                    }
+      STATUS_RES           {  20     {job known running numer denom} -   }
+      ECHO_REQ             {  16     {data} ECHO_RES                     }
+      ECHO_RES             {  17     {data} -                            }
+      OPTION_REQ           {  26     {name} OPTION_RES                   }
+      OPTION_RES           {  27     {name} -                            }
   }
 
   variable sock ""
@@ -149,20 +153,18 @@ namespace eval gearman::client {
     binary scan $buffer x12a* data
 
 
+    binary scan $buffer H* hex
+    debug "bytes head = $hex"
     binary scan $data H* hex
-    debug "bytes = $hex"
+    debug "bytes body = $hex"
     #set data [encoding convertfrom utf-8 $data]
     # assert $magic eq "\0RES"
     set type_text $lut($type)
     debug "RES $type $size $type_text [join [split $data "\0"]]"
-    switch $type_text {
-      "WORK_DATA" {
-        return [linsert [split $data "\0"] 0 $type_text]
-      }
-      default {
-        return [list $type_text $data]
-      }
-    }
+
+    # $protocol($type_text)
+
+    return [list $type_text {*}[split $data "\0"]] ;# TODO: check $data number 
   }
 }
 
@@ -220,12 +222,15 @@ proc gearman::client::submit {this args} {
       "WORK_DATA"   {
         append data [lindex $res end]
       }
+      "WORK_COMPLETE" -
+      "NO_JOB"      {
+        append data [lindex $res end]
+        break
+      }
       "WORK_STATUS" {
         debug "STATUS: ..."
         #TODO# $kargs(-progress)
       }
-      "WORK_COMPLETE" -
-      "NO_JOB"      { break }
       "WORK_FAIL"        -
       "WORK_EXCEPTION"   -
       "WORK_WARNING"     -
