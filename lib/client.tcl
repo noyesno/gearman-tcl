@@ -5,6 +5,9 @@
 # at: Apr, 2014                                                     #
 #===================================================================#
 
+package require gearman::protocol
+package provide gearman::client 0.1
+
 namespace eval gearman::client {
   proc create {args} {
     set this [gearman::protocol::connect {*}$args]

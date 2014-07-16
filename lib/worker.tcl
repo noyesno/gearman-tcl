@@ -5,6 +5,10 @@
 # at: Apr, 2014                                                     #
 #===================================================================#
 
+
+package require gearman::protocol
+package provide gearman::worker 0.1
+
 namespace eval gearman::worker {
   proc create {args} {
     set this [gearman::protocol::connect {*}$args]
