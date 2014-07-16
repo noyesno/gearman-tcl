@@ -6,165 +6,21 @@
 #===================================================================#
 
 namespace eval gearman::client {
-  set debug 0
+  proc create {args} {
+    set this [gearman::protocol::connect {*}$args]
 
-  proc debug {args} {
-    variable debug
-    if {!$debug} return
-    puts "DEBUG: [join $args]"
-  }
+    set ns [namespace current]
+    interp alias {} $ns'$this {} ${ns}::call $this
 
-  array set protocol {
-      ERROR                {  19     {code text} -                                                                                        }
-
-      SUBMIT_JOB           {   7     {func uuid data} {JOB_CREATED WORK_DATA WORK_WARNING WORK_STATUS WORK_COMPLETE WORK_FAIL WORK_EXCEPTION}  }
-      SUBMIT_JOB_LOW       {  33     {func uuid data} {JOB_CREATED WORK_DATA WORK_WARNING WORK_STATUS WORK_COMPLETE WORK_FAIL WORK_EXCEPTION}  }
-      SUBMIT_JOB_HIGH      {  21     {func uuid data} {JOB_CREATED WORK_DATA WORK_WARNING WORK_STATUS WORK_COMPLETE WORK_FAIL WORK_EXCEPTION}  }
-      SUBMIT_JOB_BG        {  18     {func uuid data} JOB_CREATED        }
-      SUBMIT_JOB_LOW_BG    {  34     {func uuid data} {JOB_CREATED}      }
-      SUBMIT_JOB_HIGH_BG   {  32     {func uuid data} {JOB_CREATED}      }
-      SUBMIT_JOB_SCHED     {  35     {TODO} {JOB_CREATED}                }
-      SUBMIT_JOB_EPOCH     {  36     {TODO} {JOB_CREATED}                }
-
-      JOB_CREATED          {   8     {job} -                             }
-      WORK_DATA            {  28     {job data} -                        }
-      WORK_COMPLETE        {  13     {job data} -                        }
-      WORK_STATUS          {  12     {job numer denom} -                 }
-      WORK_WARNING         {  29     {job data} -                        }
-      WORK_FAIL            {  14     {job}      -                        }
-      WORK_EXCEPTION       {  25     {job data} -                        }
-
-      NO_JOB               {  10     -                                   }
-      GET_STATUS           {  15     {job} STATUS_RES                    }
-      STATUS_RES           {  20     {job known running numer denom} -   }
-      ECHO_REQ             {  16     {data} ECHO_RES                     }
-      ECHO_RES             {  17     {data} -                            }
-      OPTION_REQ           {  26     {name} OPTION_RES                   }
-      OPTION_RES           {  27     {name} -                            }
-  }
-
-  variable sock ""
-
-  array set lut ""
-
-  proc init {} {
-    variable lut
-    variable protocol
-
-    foreach {type meta} [array get protocol] {
-      set id [lindex $meta 0]
-      set lut($id) $type
-    }
-  }
-
-  init
-
-
-  proc connect {this host {port 4730}} {
-    variable {}
-
-    set sock [socket $host $port]
-    #fconfigure $sock -blocking 0
-    #fileevent $sock readable [list gearman::client::recv]
-
-    set ($this,sock) $sock
+    return $ns'$this
   }
 
   proc close {this} {
-    variable {}
-
-    ::close $($this,sock)
+    gearman::protocol::close $this
   }
 
-
-  proc send {this type args} {
-    variable {}
-    set sock $($this,sock)
-
-    set data [join $args "\0"]
-    #set data [encoding convertto utf-8 $data]
-    set data [binary format "a*" $data]
-    set size [string length $data]
-    set buffer [binary format a4IIa* "\0REQ" $type $size $data]
-    debug "REQ $type $size [join [split $data "\0"]]"
-    puts -nonewline $sock $buffer
-    flush $sock
-  }
-
-  proc recv {this {timeout 3000}} {
-    variable {}
-    set sock $($this,sock)
-
-    variable lut
-
-    #-- fconfigure $sock -blocking 0
-    #-- if {[chan pending input $sock]<12} {
-    #--   puts "DEBUG: pending = [chan pending input $sock]"
-    #--   fconfigure $sock -blocking 1
-    #--   return ""
-    #-- }
-
-
-    # variable buffer ""   ;# TODO ($this, buffer)
-    upvar 0 ($this,buffer) buffer
-    set buffer ""
-
-    # set timeout 3000 ;# 3000ms
-    set expire [expr {[clock milliseconds] + $timeout}]
-    fconfigure $sock -blocking 0
-    set stat "ok"
-    while {1} {
-      if {[clock milliseconds]>$expire} {
-        # puts "timeout"
-        set stat "timeout"
-        break
-      }
-      set size 12
-      if {[string length $buffer]<$size} {
-        append buffer [read $sock [expr {$size-[string length $buffer]}]]
-      }
-      if {[string length $buffer]<$size} {
-        # recv $this 0
-        continue
-      }
-
-      binary scan $buffer a4II magic type size
-      debug "$magic $type $size"
-
-      set size [expr {$size+12}]
-      if {[string length $buffer]<$size} {
-        append buffer [read $sock [expr {$size-[string length $buffer]}]]
-      }
-
-      if {[string length $buffer]<$size} {
-        # recv $this 0
-        continue
-      }
-
-      break;
-    }
-    fconfigure $sock -blocking 1
-
-    if {$stat ne "ok"} {
-      return $stat
-    }
-
-    # set data [read $sock $size]
-    binary scan $buffer x12a* data
-
-
-    binary scan $buffer H* hex
-    debug "bytes head = $hex"
-    binary scan $data H* hex
-    debug "bytes body = $hex"
-    #set data [encoding convertfrom utf-8 $data]
-    # assert $magic eq "\0RES"
-    set type_text $lut($type)
-    debug "RES $type $size $type_text [join [split $data "\0"]]"
-
-    # $protocol($type_text)
-
-    return [list $type_text {*}[split $data "\0"]] ;# TODO: check $data number 
+  proc call {this subcmd args} {
+    $subcmd $this {*}$args
   }
 }
 
@@ -173,9 +29,6 @@ namespace eval gearman::client {
 
 proc gearman::client::submit {this args} {
   variable {}
-  variable protocol
-
-  set sock $($this,sock)
 
   set task [lindex $args end-1]
   set data [lindex $args end]
@@ -203,11 +56,10 @@ proc gearman::client::submit {this args} {
     append cmd "_BG"
   }
 
-  set cmd_id [lindex $protocol($cmd) 0]
-  send $this $cmd_id $task $kargs(-uuid) $data
+  gearman::protocol::send $this $cmd $task $kargs(-uuid) $data
 
   if {$kargs(-background)} {
-    set job [recv $this]
+    set job [gearman::protocol::recv $this]
     debug "BG JOB: $job"
     return $job
   }
@@ -215,16 +67,16 @@ proc gearman::client::submit {this args} {
   #TODO: add timeout
   set data ""
   for {set n 0} {1} {incr n} {
-    set res [recv $this $kargs(-timeout)]
+    set res [gearman::protocol::recv $this $kargs(-timeout)]
 
     switch -- [lindex $res 0] {
       "JOB_CREATED" { debug "JOB $res" }
       "WORK_DATA"   {
-        append data [lindex $res end]
+        append data [lindex $res 1 1]
       }
       "WORK_COMPLETE" -
       "NO_JOB"      {
-        append data [lindex $res end]
+        append data [lindex $res 1 1]
         break
       }
       "WORK_STATUS" {
@@ -245,17 +97,7 @@ proc gearman::client::submit {this args} {
   return $data
 }
 
-proc gearman::client::create {args} {
-  variable {}
-  set this [incr (this)]
-  interp alias {} ::gearman::client'$this {} ::gearman::client::call $this
-  connect $this {*}$args
-  return gearman::client'$this
-}
 
-proc gearman::client::call {this subcmd args} {
-  gearman::client::$subcmd $this {*}$args
-}
 
 
 proc gearman::client::unknown {args} {
