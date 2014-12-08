@@ -65,7 +65,7 @@ namespace eval gearman::protocol {
       GRAP_JOB             {   9 {}                   {NO_JOB JOB_ASSIGN}       }
       GRAP_JOB_UNIQ        {  30 {}                   {NO_JOB JOB_ASSIGN_UNIQ}  }
 
-      NO_JOB               {  10 {job data}                                     }
+      NO_JOB               {  10     {}         }
       JOB_ASSIGN           {  11 {job func data}      -                         }
       JOB_ASSIGN_UNIQ      {  31 {job func uuid data} -                         }
 
@@ -234,7 +234,7 @@ namespace eval gearman::protocol {
     set retv [split_limit $data "\0" $retc]
 
     if {$retc != [llength $retv]} {
-      error "Incorrect number of result values"
+      error "Incorrect number of result values: $retc != [llength $retv]"
     }
 
     return [list $type_text $retv]
