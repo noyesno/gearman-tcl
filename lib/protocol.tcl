@@ -36,47 +36,53 @@ namespace eval gearman::protocol {
   # NO_JOB               {  10     {}         }
   # NO_JOB               {  10     {job data} }
   # TODO: bug workaround, treat client NO_JOB as WORK_COMPLETE
+  # GRAB_JOB_ALL
+  # JOB_ASSIGN_ALL
   array set protocol {
-      ERROR                {  19     {code text} -                                                                                        }
+      ERROR                {  19 {code text} -                                                                                        }
 
-      SUBMIT_JOB           {   7     {func uuid data} {JOB_CREATED WORK_DATA WORK_WARNING WORK_STATUS WORK_COMPLETE WORK_FAIL WORK_EXCEPTION}  }
-      SUBMIT_JOB_LOW       {  33     {func uuid data} {JOB_CREATED WORK_DATA WORK_WARNING WORK_STATUS WORK_COMPLETE WORK_FAIL WORK_EXCEPTION}  }
-      SUBMIT_JOB_HIGH      {  21     {func uuid data} {JOB_CREATED WORK_DATA WORK_WARNING WORK_STATUS WORK_COMPLETE WORK_FAIL WORK_EXCEPTION}  }
-      SUBMIT_JOB_BG        {  18     {func uuid data} JOB_CREATED        }
-      SUBMIT_JOB_LOW_BG    {  34     {func uuid data} {JOB_CREATED}      }
-      SUBMIT_JOB_HIGH_BG   {  32     {func uuid data} {JOB_CREATED}      }
-      SUBMIT_JOB_SCHED     {  35     {TODO} {JOB_CREATED}                }
-      SUBMIT_JOB_EPOCH     {  36     {TODO} {JOB_CREATED}                }
+      SUBMIT_JOB           {   7 {func uuid data} {JOB_CREATED WORK_DATA WORK_WARNING WORK_STATUS WORK_COMPLETE WORK_FAIL WORK_EXCEPTION}  }
+      SUBMIT_JOB_LOW       {  33 {func uuid data} {JOB_CREATED WORK_DATA WORK_WARNING WORK_STATUS WORK_COMPLETE WORK_FAIL WORK_EXCEPTION}  }
+      SUBMIT_JOB_HIGH      {  21 {func uuid data} {JOB_CREATED WORK_DATA WORK_WARNING WORK_STATUS WORK_COMPLETE WORK_FAIL WORK_EXCEPTION}  }
+      SUBMIT_JOB_BG        {  18 {func uuid data} {JOB_CREATED}      }
+      SUBMIT_JOB_LOW_BG    {  34 {func uuid data} {JOB_CREATED}      }
+      SUBMIT_JOB_HIGH_BG   {  32 {func uuid data} {JOB_CREATED}      }
+      SUBMIT_JOB_SCHED     {  35 {func uuid minute hour mday month wday data} {JOB_CREATED}                }
+      SUBMIT_JOB_EPOCH     {  36 {func uuid epoch data} {JOB_CREATED}                }
 
-      JOB_CREATED          {   8     {job} -                             }
-
-      CAN_DO               {   1     {func}               {}                        }
-      CANT_DO              {   2     {func}               {}                        }
-      CAN_DO_TIMEOUT       {  23     {func timeout}       {}                        }
-      RESET_ABILITIES      {   3     {}                   {}                        }
-      PRE_SLEEP            {   4     {}                   {}                        }
-      NOOP                 {   6     {}                   -                         }
-      GRAP_JOB             {   9     {}                   {NO_JOB JOB_ASSIGN}       }
-      GRAP_JOB_UNIQ        {  30     {}                   {NO_JOB JOB_ASSIGN_UNIQ}  }
-
-      NO_JOB               {  10     {job data}                                     }
-      JOB_ASSIGN           {  11     {job func data}      -                         }
-      JOB_ASSIGN_UNIQ      {  31     {job func uuid data} -                         }
+      SUBMIT_JOB_REDUCE    {  37 {func uuid reducer - data} {JOB_CREATED WORK_DATA WORK_WARNING WORK_STATUS WORK_COMPLETE WORK_FAIL WORK_EXCEPTION}  }
+      SUBMIT_JOB_REDUCE_BG {  38 {func uuid reducer - data} {JOB_CREATED}  }
 
 
-      WORK_DATA            {  28     {job data} -                        }
-      WORK_COMPLETE        {  13     {job data} -                        }
-      WORK_STATUS          {  12     {job numer denom} -                 }
-      WORK_WARNING         {  29     {job data} -                        }
-      WORK_FAIL            {  14     {job}      -                        }
-      WORK_EXCEPTION       {  25     {job data} -                        }
+      JOB_CREATED          {   8 {job} -                             }
 
-      GET_STATUS           {  15     {job} STATUS_RES                    }
-      STATUS_RES           {  20     {job known running numer denom} -   }
-      ECHO_REQ             {  16     {data} ECHO_RES                     }
-      ECHO_RES             {  17     {data} -                            }
-      OPTION_REQ           {  26     {name} OPTION_RES                   }
-      OPTION_RES           {  27     {name} -                            }
+      CAN_DO               {   1 {func}               {}                        }
+      CANT_DO              {   2 {func}               {}                        }
+      CAN_DO_TIMEOUT       {  23 {func timeout}       {}                        }
+      RESET_ABILITIES      {   3 {}                   {}                        }
+      PRE_SLEEP            {   4 {}                   {}                        }
+      NOOP                 {   6 {}                   -                         }
+      GRAP_JOB             {   9 {}                   {NO_JOB JOB_ASSIGN}       }
+      GRAP_JOB_UNIQ        {  30 {}                   {NO_JOB JOB_ASSIGN_UNIQ}  }
+
+      NO_JOB               {  10 {job data}                                     }
+      JOB_ASSIGN           {  11 {job func data}      -                         }
+      JOB_ASSIGN_UNIQ      {  31 {job func uuid data} -                         }
+
+
+      WORK_DATA            {  28 {job data} -                        }
+      WORK_COMPLETE        {  13 {job data} -                        }
+      WORK_STATUS          {  12 {job numer denom} -                 }
+      WORK_WARNING         {  29 {job data} -                        }
+      WORK_FAIL            {  14 {job}      -                        }
+      WORK_EXCEPTION       {  25 {job data} -                        }
+
+      GET_STATUS           {  15 {job} STATUS_RES                    }
+      STATUS_RES           {  20 {job known running numer denom} -   }
+      ECHO_REQ             {  16 {data} ECHO_RES                     }
+      ECHO_RES             {  17 {data} -                            }
+      OPTION_REQ           {  26 {name} OPTION_RES                   }
+      OPTION_RES           {  27 {name} -                            }
   }
 
   array set lut ""
@@ -113,6 +119,7 @@ namespace eval gearman::protocol {
     set this [incr (this)]
 
     set sock [socket $host $port]
+    fconfigure $sock -translation binary
     #fconfigure $sock -blocking 0
     #fileevent $sock readable [list gearman::client::recv]
 
