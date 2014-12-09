@@ -124,8 +124,13 @@ proc gearman::worker::_work {this job func data} {
 
   set callback $($this,callback,$func)
 
-  catch {
-    set result [uplevel #0 $callback $data]
+  set worker "-" ;# TODO
+
+  if [catch {
+    set result [uplevel #0 [list $callback $worker $data]]
+  } err] {
+    set result "Worker Error: $err"
+    puts $result
   }
 
   # send $this WORK_DATA   $job $result
