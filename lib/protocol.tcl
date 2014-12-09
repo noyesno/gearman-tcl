@@ -169,11 +169,12 @@ namespace eval gearman::protocol {
     upvar 0 ($this,buffer) buffer
     set buffer ""
 
-    # set timeout 3000 ;# 3000ms
-    set expire [expr {[clock milliseconds] + $timeout}]
-    if {$timeout>0} {
+    if {$timeout>0 && ![eof $sock]} {
+      # set timeout 3000 ;# 3000ms
+      set expire [expr {[clock milliseconds] + $timeout}]
       fconfigure $sock -blocking 0
     }
+
     set stat "ok"
     while {1} {
       if {$timeout>0 && [clock milliseconds]>$expire} {
@@ -181,6 +182,13 @@ namespace eval gearman::protocol {
         set stat "timeout"
         break
       }
+
+      if {[eof $sock]} {
+        debug "SOCK closed"
+        set stat "EOF"
+        return $stat
+      }
+
       set size 12
       if {[string length $buffer]<$size} {
         append buffer [read $sock [expr {$size-[string length $buffer]}]]
@@ -207,7 +215,7 @@ namespace eval gearman::protocol {
 
       break;
     }
-    if {$timeout>0} {
+    if {$timeout>0 && ![eof $sock]} {
       fconfigure $sock -blocking 1
     }
 

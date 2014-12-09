@@ -74,10 +74,13 @@ proc gearman::worker::work {this} {
     gearman::protocol::send $this GRAP_JOB
     set res [gearman::protocol::recv $this]
     switch -- [lindex $res 0] {
-      "NO_JOB"      {
+      EOF {
+        break
+      }
+      NO_JOB      {
 	_sleep $this
       }
-      "JOB_ASSIGN"  {
+      JOB_ASSIGN  {
 	debug "JOB $res"
 	lassign [lindex $res 1] job func data
 	_work $this $job $func $data
@@ -94,10 +97,20 @@ proc gearman::worker::_sleep {this} {
   debug "pre_sleep"
   gearman::protocol::send $this PRE_SLEEP
   set res [gearman::protocol::recv $this]
-  if {[lindex $res 0] ne "NOOP"} {
-    error "Invalid Response $res"
+
+  switch [lindex $res 0] {
+    EOF {
+      return
+    }
+
+    NOOP  {
+      debug "noop"
+    }
+
+    default {
+      error "Invalid Response $res"
+    }
   }
-  debug "noop"
 }
 
 proc gearman::worker::_work {this job func data} {
