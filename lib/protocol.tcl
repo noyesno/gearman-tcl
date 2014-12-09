@@ -62,8 +62,8 @@ namespace eval gearman::protocol {
       RESET_ABILITIES      {   3 {}                   {}                        }
       PRE_SLEEP            {   4 {}                   {}                        }
       NOOP                 {   6 {}                   -                         }
-      GRAP_JOB             {   9 {}                   {NO_JOB JOB_ASSIGN}       }
-      GRAP_JOB_UNIQ        {  30 {}                   {NO_JOB JOB_ASSIGN_UNIQ}  }
+      GRAB_JOB             {   9 {}                   {NO_JOB JOB_ASSIGN}       }
+      GRAB_JOB_UNIQ        {  30 {}                   {NO_JOB JOB_ASSIGN_UNIQ}  }
 
       NO_JOB               {  10     {}         }
       JOB_ASSIGN           {  11 {job func data}      -                         }
@@ -185,7 +185,7 @@ namespace eval gearman::protocol {
 
       if {[eof $sock]} {
         debug "SOCK closed"
-        set stat "EOF"
+        set stat "_EOF_"
         return $stat
       }
 

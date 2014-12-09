@@ -70,47 +70,50 @@ proc gearman::worker::work {this} {
 
   #_sleep $this
 
+  set res [list _START_]
   while 1 {
-    gearman::protocol::send $this GRAP_JOB
-    set res [gearman::protocol::recv $this]
-    switch -- [lindex $res 0] {
-      EOF {
+    set stat [lindex $res 0]
+    switch -- $stat {
+      _START_ {
+        gearman::protocol::send $this GRAB_JOB
+      }
+
+      _EOF_ {
         break
       }
-      NO_JOB      {
-	_sleep $this
+
+      NO_JOB  {
+	#-- _sleep $this
+        debug "pre_sleep"
+        gearman::protocol::send $this PRE_SLEEP
       }
+
+      NOOP  {
+        debug "noop"
+        gearman::protocol::send $this GRAB_JOB
+      }
+
       JOB_ASSIGN  {
 	debug "JOB $res"
 	lassign [lindex $res 1] job func data
 	_work $this $job $func $data
+
+        gearman::protocol::send $this GRAB_JOB
       }
+
       default {
 	error "..." ;# TODO
       }
-    }
-  }
+    } ;# end switch
+
+    set res [gearman::protocol::recv $this]
+  } ;# end while
 }
 
 
 proc gearman::worker::_sleep {this} {
   debug "pre_sleep"
   gearman::protocol::send $this PRE_SLEEP
-  set res [gearman::protocol::recv $this]
-
-  switch [lindex $res 0] {
-    EOF {
-      return
-    }
-
-    NOOP  {
-      debug "noop"
-    }
-
-    default {
-      error "Invalid Response $res"
-    }
-  }
 }
 
 proc gearman::worker::_work {this job func data} {
@@ -145,4 +148,9 @@ namespace eval gearman::worker {
     -subcommand {"create" "submit" "close"} \
     -unknown ::gearman::worker::unknown
 }
+
+return
+
+  * Add support of reconnect when lost connection.
+
 
