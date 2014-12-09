@@ -113,8 +113,19 @@ namespace eval gearman::protocol {
     return [list $type_text $protocol($type_text)]
   }
 
-  proc connect {host {port 4730}} {
+  # localhost:4730
+  proc connect {args} {
     variable {}
+
+    if {[llength $args]==0 && [info exist ::env(GEARMAN_SERVER)]} {
+      lassign [split [lindex [split $::env(GEARMAN_SERVER) ","] 0] ":"] host port
+    } else {
+      lassign $args host port
+    }
+
+    if {$port eq ""} {
+      set port 4730
+    }
 
     set this [incr (this)]
 
