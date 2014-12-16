@@ -36,7 +36,7 @@ proc gearman::client::submit {this args} {
   set task [lindex $args end-1]
   set data [lindex $args end]
 
-  array set kargs {-priority "" -background 0 -uuid "" -timeout 3000}
+  array set kargs {-priority "" -background 0 -uuid "" -timeout 3000 -epoch 0}
 
   set argc [llength $args]
   for {set i 0 ; incr argc -2} {$i<$argc} {incr i} {
@@ -46,22 +46,32 @@ proc gearman::client::submit {this args} {
        -high    {set kargs(-priority) "high"}
        -low     {set kargs(-priority) "low"}
        -id      -
-       -uuid    {set kargs(-uuid) [lindex $args [incr i]}
-       -timeout {set kargs(-timeout) [lindex $args [incr i]}
+       -uuid    {set kargs(-uuid)    [lindex $args [incr i]]}
+       -timeout {set kargs(-timeout) [lindex $args [incr i]]}
+       -epoch   {set kargs(-epoch)   [lindex $args [incr i]]}
      }
   }
 
   set cmd "SUBMIT_JOB"
-  if {$kargs(-priority) ne ""} {
-    append cmd "_[string touuper $(-priority)]"
-  }
-  if {$kargs(-background)} {
-    append cmd "_BG"
+  if {$kargs(-epoch) > 0} {
+    set cmd "SUBMIT_JOB_EPOCH"
+    gearman::protocol::send $this $cmd $task $kargs(-uuid) $kargs(-epoch) $data
+  } else {
+    if {$kargs(-priority) ne ""} {
+      append cmd "_[string touuper $(-priority)]"
+    }
+    if {$kargs(-background)} {
+      append cmd "_BG"
+    }
+    gearman::protocol::send $this $cmd $task $kargs(-uuid) $data
   }
 
-  gearman::protocol::send $this $cmd $task $kargs(-uuid) $data
 
-  if {$kargs(-background)} {
+  if {$kargs(-epoch) > 0} {
+    set job [gearman::protocol::recv $this]
+    debug "EPOCH JOB: $job"
+    return $job
+  } elseif {$kargs(-background)} {
     set job [gearman::protocol::recv $this]
     debug "BG JOB: $job"
     return $job
