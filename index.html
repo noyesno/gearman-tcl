@@ -1,89 +1,75 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
   <head>
-    <meta charset='utf-8'>
+    <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="chrome=1">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-    <link href='https://fonts.googleapis.com/css?family=Architects+Daughter' rel='stylesheet' type='text/css'>
-    <link rel="stylesheet" type="text/css" href="stylesheets/stylesheet.css" media="screen" />
-    <link rel="stylesheet" type="text/css" href="stylesheets/pygment_trac.css" media="screen" />
-    <link rel="stylesheet" type="text/css" href="stylesheets/print.css" media="print" />
+    <title>Tcl-Gearman by noyesno</title>
+
+    <link rel="stylesheet" href="stylesheets/styles.css">
+    <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+    <script src="javascripts/scale.fix.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 
     <!--[if lt IE 9]>
     <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
     <![endif]-->
-
-    <title>Tcl-Gearman by noyesno</title>
   </head>
-
   <body>
-    <header>
-      <div class="inner">
+    <div class="wrapper">
+      <header>
         <h1>Tcl-Gearman</h1>
-        <h2>A Tcl implementation of Gearman Client/Work/Admin interface </h2>
-        <a href="https://github.com/noyesno/Tcl-Gearman" class="button"><small>View project on</small>GitHub</a>
-      </div>
-    </header>
-
-    <div id="content-wrapper">
-      <div class="inner clearfix">
-        <section id="main-content">
-          <h1>
-<a name="tclgearman" class="anchor" href="#tclgearman"><span class="octicon octicon-link"></span></a>TclGearman</h1>
+        <p>A Tcl implementation of Gearman Client/Work/Admin interface </p>
+        <p class="view"><a href="https://github.com/noyesno/gearman-tcl">View the Project on GitHub <small>noyesno/gearman-tcl</small></a></p>
+        <ul>
+          <li><a href="https://github.com/noyesno/gearman-tcl/zipball/master">Download <strong>ZIP File</strong></a></li>
+          <li><a href="https://github.com/noyesno/gearman-tcl/tarball/master">Download <strong>TAR Ball</strong></a></li>
+          <li><a href="https://github.com/noyesno/gearman-tcl">View On <strong>GitHub</strong></a></li>
+        </ul>
+      </header>
+      <section>
+        <h1>
+<a id="tclgearman" class="anchor" href="#tclgearman" aria-hidden="true"><span class="octicon octicon-link"></span></a>TclGearman</h1>
 
 <p>A Tcl implementation of Gearman Client/Worker/Admin interface </p>
 
+<p>This project start with a Tcl binding of <code>libgearman</code>, and later moved the focus to a pure Tcl implementaion.</p>
+
 <p>Load the package:</p>
 
-<pre><code>load libtclgearman.so
-</code></pre>
+<div class="highlight highlight-tcl"><pre><span class="pl-k">package</span> require gearman</pre></div>
 
 <p>A basic Gearman Client:</p>
 
-<pre><code>set host [lindex $argv 0]
-set client [gearman::client create $host]
+<div class="highlight highlight-tcl"><pre><span class="pl-k">set</span> host [<span class="pl-k">lindex</span> <span class="pl-vo">$argv</span> 0]
+<span class="pl-k">set</span> client [gearman::client create <span class="pl-vo">$host</span>]
 
-$client config -client_id "client_tclgearman"
+<span class="pl-vo">$client</span> config -client_id <span class="pl-s1"><span class="pl-pds">"</span>client_tclgearman<span class="pl-pds">"</span></span>
 
-set result [$client submit "reverse" "Hello Tcl Gearman"]
+<span class="pl-k">set</span> result [<span class="pl-vo">$client</span> submit <span class="pl-s1"><span class="pl-pds">"</span>reverse<span class="pl-pds">"</span></span> <span class="pl-s1"><span class="pl-pds">"</span>Hello Tcl Gearman<span class="pl-pds">"</span></span>]
 
-puts $result
-</code></pre>
+<span class="pl-k">puts</span> <span class="pl-vo">$result</span></pre></div>
 
 <p>A basic Gearman Worker:</p>
 
-<pre><code>set server [lindex $argv 0]
-set worker [gearman::worker create $server]
+<div class="highlight highlight-tcl"><pre><span class="pl-k">set</span> server [<span class="pl-k">lindex</span> <span class="pl-vo">$argv</span> 0]
+<span class="pl-k">set</span> worker [gearman::worker create <span class="pl-vo">$server</span>]
 
-$worker register "reverse" "task_reverse"
+<span class="pl-vo">$worker</span> register <span class="pl-s1"><span class="pl-pds">"</span>reverse<span class="pl-pds">"</span></span> <span class="pl-s1"><span class="pl-pds">"</span>task_reverse<span class="pl-pds">"</span></span>
 
-proc task_reverse {worker data} {
-  puts "request data = $data"
-  set response_data [string reverse $data]
-  return $response_data
+<span class="pl-k">proc</span> <span class="pl-en">task_reverse</span> {worker data} {
+  <span class="pl-k">puts</span> <span class="pl-s1"><span class="pl-pds">"</span>request data = <span class="pl-vo">$data</span><span class="pl-pds">"</span></span>
+  <span class="pl-k">set</span> response_data [<span class="pl-k">string</span> reverse <span class="pl-vo">$data</span>]
+  <span class="pl-k">return</span> <span class="pl-vo">$response_data</span>
 }
 
-$worker work
-</code></pre>
-        </section>
-
-        <aside id="sidebar">
-          <a href="https://github.com/noyesno/Tcl-Gearman/zipball/master" class="button">
-            <small>Download</small>
-            .zip file
-          </a>
-          <a href="https://github.com/noyesno/Tcl-Gearman/tarball/master" class="button">
-            <small>Download</small>
-            .tar.gz file
-          </a>
-
-          <p class="repo-owner"><a href="https://github.com/noyesno/Tcl-Gearman"></a> is maintained by <a href="https://github.com/noyesno">noyesno</a>.</p>
-
-          <p>This page was generated by <a href="pages.github.com">GitHub Pages</a> using the Architect theme by <a href="https://twitter.com/jasonlong">Jason Long</a>.</p>
-        </aside>
-      </div>
+<span class="pl-vo">$worker</span> work</pre></div>
+      </section>
     </div>
-
-  
+    <footer>
+      <p>Project maintained by <a href="https://github.com/noyesno">noyesno</a></p>
+      <p>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></p>
+    </footer>
+    <!--[if !IE]><script>fixScale(document);</script><![endif]-->
+    
   </body>
 </html>
