@@ -68,7 +68,7 @@ proc gearman::worker::register {this args} {
 proc gearman::worker::work {this args} {
   variable {}
 
-  array set kargs {-blocking 0 -sleep 100}
+  array set kargs {-blocking 1 -sleep 100}
   array set kargs $args
 
   #_sleep $this
