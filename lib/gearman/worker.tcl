@@ -65,16 +65,20 @@ proc gearman::worker::register {this args} {
   }
 }
 
-proc gearman::worker::work {this} {
+proc gearman::worker::work {this args} {
   variable {}
 
-  #_sleep $this
+  array set kargs {-blocking 0 -sleep 100}
+  array set kargs $args
 
-  set res [list _START_]
+  #_sleep $this
+  #TODO: catch errro
+
+  set res [list _GRAB_]
   while 1 {
     set stat [lindex $res 0]
     switch -- $stat {
-      _START_ {
+      _GRAB_ {
         gearman::protocol::send $this GRAB_JOB
       }
 
@@ -83,9 +87,23 @@ proc gearman::worker::work {this} {
       }
 
       NO_JOB  {
+        if {!$kargs(-blocking)} {
+          return 1
+        }
+
 	#-- _sleep $this
-        debug "pre_sleep"
-        gearman::protocol::send $this PRE_SLEEP
+        if {$kargs(-sleep) == 0} {
+          debug "pre_sleep"
+          gearman::protocol::send $this PRE_SLEEP
+        } elseif {$kargs(-sleep) > 0} {
+          debug "sleep $kargs(-sleep)"
+          after $kargs(-sleep)
+          set res [list _GRAB_]
+        } else {
+          debug "nosleep, grab"
+          # ... continue ...
+          set res [list _GRAB_]
+        }
       }
 
       NOOP  {
