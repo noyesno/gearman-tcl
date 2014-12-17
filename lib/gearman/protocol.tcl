@@ -129,7 +129,13 @@ namespace eval gearman::protocol {
 
     set this [incr (this)]
 
-    set sock [socket $host $port]
+    if [catch {set sock [socket $host $port]} err options] {
+      return -code error -errorcode "SOCK_FAIL" \
+          -errorinfo "fail to connect gearmand server $host:$port"
+    }
+    #For Tcl 8.5: return -options $options $err
+    #For Tcl 8.4: error $err $::errorInfo
+
     fconfigure $sock -translation binary
     #fconfigure $sock -blocking 0
     #fileevent $sock readable [list gearman::client::recv]
