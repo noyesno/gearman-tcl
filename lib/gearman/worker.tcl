@@ -99,10 +99,12 @@ proc gearman::worker::work {this args} {
           debug "sleep $kargs(-sleep)"
           after $kargs(-sleep)
           set res [list _GRAB_]
+          continue
         } else {
           debug "nosleep, grab"
           # ... continue ...
           set res [list _GRAB_]
+          continue
         }
       }
 
