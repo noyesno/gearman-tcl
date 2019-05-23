@@ -10,13 +10,20 @@ package require gearman::protocol
 package provide gearman::worker 0.1
 
 namespace eval gearman::worker {
+  proc instance {this} {
+    set ns [namespace current]
+    return $ns'$this
+  }
+
   proc create {args} {
     set this [gearman::protocol::connect {*}$args]
 
     set ns [namespace current]
-    interp alias {} $ns'$this {} ${ns}::call $this
+    set worker [instance $this]
 
-    return $ns'$this
+    interp alias {} $worker {} ${ns}::call $this
+
+    return $worker
   }
 
   proc close {this} {
@@ -30,6 +37,23 @@ namespace eval gearman::worker {
 }
 
 
+proc gearman::worker::config {this args} {
+  variable {}
+  array set kargs {-id ""}
+
+  set argc [llength $args]
+  for {set i 0} {$i<$argc} {incr i} {
+     set arg [lindex $args $i]
+     switch -glob -- $arg {
+       -id      {set kargs(-id)      [lindex $args [incr i]]}
+     }
+  }
+
+  if {$kargs(-id) ne ""} {
+    set ($this,id) $kargs(-id)
+    gearman::protocol::send $this SET_CLIENT_ID $kargs(-id)
+  }
+}
 
 
 # register func callback
@@ -44,13 +68,9 @@ proc gearman::worker::register {this args} {
   for {set i 0 ; incr argc -2} {$i<$argc} {incr i} {
      set arg [lindex $args $i]
      switch -glob -- $arg {
-       -id      {set kargs(-id) [lindex $args [incr i]}
-       -timeout {set kargs(-timeout) [lindex $args [incr i]}
+       -id      {set kargs(-id)      [lindex $args [incr i]]}
+       -timeout {set kargs(-timeout) [lindex $args [incr i]]}
      }
-  }
-
-  if {$kargs(-id) ne ""} {
-    gearman::protocol::send $this SET_CLIENT_ID $func
   }
 
   if {$callback eq ""} {
@@ -136,6 +156,16 @@ proc gearman::worker::_sleep {this} {
   gearman::protocol::send $this PRE_SLEEP
 }
 
+proc gearman::worker::jobinfo {this {key ""}} {
+  variable {}
+
+  if {$key eq ""} {
+    return $($this,jobinfo)
+  }
+
+  return $($this,jobinfo)  ;# TODO: return single item
+}
+
 proc gearman::worker::_work {this job func data} {
   variable {}
   # TODO: check $func existance
@@ -144,7 +174,9 @@ proc gearman::worker::_work {this job func data} {
 
   set callback $($this,callback,$func)
 
-  set worker "-" ;# TODO
+  array set {} [list $this,jobinfo [list -id $job]]
+
+  set worker [instance $this] ;# TODO
 
   if [catch {
     set result [uplevel #0 [list $callback $worker $data]]
@@ -170,7 +202,7 @@ proc gearman::worker::unknown {args} {
 namespace eval gearman::worker {
   namespace ensemble create \
     -map        {submit "submit"} \
-    -subcommand {"create" "submit" "close"} \
+    -subcommand {"create" "submit" "close" "config" "jobinfo"} \
     -unknown ::gearman::worker::unknown
 }
 
