@@ -146,6 +146,8 @@ proc gearman::worker::work {this args} {
       }
     } ;# end switch
 
+    ::update ;# to allow event loop triggered by worker
+
     set res [gearman::protocol::recv $this]
   } ;# end while
 }
