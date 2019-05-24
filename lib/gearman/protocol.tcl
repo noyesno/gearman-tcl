@@ -83,6 +83,7 @@ namespace eval gearman::protocol {
       ECHO_RES             {  17 {data} -                            }
       OPTION_REQ           {  26 {name} OPTION_RES                   }
       OPTION_RES           {  27 {name} -                            }
+      SET_CLIENT_ID        {  22 {id}   -                            }
   }
 
   array set lut ""
@@ -151,16 +152,23 @@ namespace eval gearman::protocol {
     ::close $($this,sock)
   }
 
+  ### Send a gearman packet
   proc send {this type args} {
     variable {}
     set sock $($this,sock)
 
-    set proto [gearman::protocol::lookup $type]
+    set proto     [gearman::protocol::lookup $type]
     set type      [lindex $proto 1 0]
     set type_text [lindex $proto 0]
 
     set data [join $args "\0"]
-    #set data [encoding convertto utf-8 $data]
+
+    # XXX: leave encoding part to application.
+    #      The protocol treat it as binary.
+    if {0} {
+      set data [encoding convertto utf-8 $data]
+    }
+
     set data [binary format "a*" $data]
     set size [string length $data]
     set buffer [binary format a4IIa* "\0REQ" $type $size $data]
@@ -169,6 +177,7 @@ namespace eval gearman::protocol {
     flush $sock
   }
 
+  ### Receive a gearman packet
   proc recv {this {timeout 0}} {
     variable {}
     set sock $($this,sock)
@@ -202,7 +211,7 @@ namespace eval gearman::protocol {
 
       if {[eof $sock]} {
         debug "SOCK closed"
-        set stat "_EOF_"
+        set stat "eof"
         return $stat
       }
 
@@ -248,7 +257,14 @@ namespace eval gearman::protocol {
     debug "bytes head = $hex"
     binary scan $data H* hex
     debug "bytes body = $hex"
-    #set data [encoding convertfrom utf-8 $data]
+
+    # XXX: leave encoding to application.
+    #      Application may may send binary data which should not be encoded.
+    if {0} {
+      set data [encoding convertfrom utf-8 $data]
+    }
+
+
     set proto [gearman::protocol::lookup $type]
     set type_text [lindex $proto 0]
     debug "RES $type $size $type_text [join [split $data "\0"]]"

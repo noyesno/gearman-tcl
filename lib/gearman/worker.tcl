@@ -94,62 +94,74 @@ proc gearman::worker::work {this args} {
   #_sleep $this
   #TODO: catch errro
 
-  set res [list _GRAB_]
+  set next_stat GRAB_JOB
   while 1 {
-    set stat [lindex $res 0]
-    switch -- $stat {
-      _GRAB_ {
-        gearman::protocol::send $this GRAB_JOB
+
+    ::update ;# to allow event loop triggered by worker
+
+    switch -- $next_stat {
+      ERROR {
+        puts "Error: $err"
       }
 
-      _EOF_ {
-        break
+      GRAB_JOB {
+        gearman::protocol::send $this GRAB_JOB
+        set reply     [gearman::protocol::recv $this]
+        set next_stat [lindex $reply 0]
+      }
+
+      JOB_ASSIGN  {
+	debug "JOB $reply"
+	lassign [lindex $reply 1] job func data
+	_work $this $job $func $data
+
+        set next_stat GRAB_JOB
       }
 
       NO_JOB  {
         if {!$kargs(-blocking)} {
+          # Not in blocking mode, return.
           return 1
-        }
-
-	#-- _sleep $this
-        if {$kargs(-sleep) == 0} {
+          set next_stat @RETURN
+        } elseif {$kargs(-sleep) == 0} {
           debug "pre_sleep"
-          gearman::protocol::send $this PRE_SLEEP
+          set next_stat PRE_SLEEP
         } elseif {$kargs(-sleep) > 0} {
           debug "sleep $kargs(-sleep)"
-          after $kargs(-sleep)
-          set res [list _GRAB_]
-          continue
+          after $kargs(-sleep)    ;# sleep some time
+          set next_stat GRAB_JOB
         } else {
           debug "nosleep, grab"
           # ... continue ...
-          set res [list _GRAB_]
-          continue
+          set next_stat GRAB_JOB
         }
+      }
+
+      PRE_SLEEP {
+        debug "pre_sleep"
+        gearman::protocol::send $this PRE_SLEEP
+        set reply     [gearman::protocol::recv $this]
+        set next_stat [lindex $reply 0]
       }
 
       NOOP  {
         debug "noop"
-        gearman::protocol::send $this GRAB_JOB
+        set next_stat GRAB_JOB
       }
 
-      JOB_ASSIGN  {
-	debug "JOB $res"
-	lassign [lindex $res 1] job func data
-	_work $this $job $func $data
-
-        gearman::protocol::send $this GRAB_JOB
+      eof {
+        # ...
       }
-
+      timeout {
+        # ...
+      }
       default {
-	error "..." ;# TODO
+	error "unknown stat $next_stat" ;# TODO
       }
     } ;# end switch
-
-    ::update ;# to allow event loop triggered by worker
-
-    set res [gearman::protocol::recv $this]
   } ;# end while
+
+  return
 }
 
 
