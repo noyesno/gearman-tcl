@@ -88,9 +88,10 @@ proc gearman::worker::register {this args} {
 proc gearman::worker::work {this args} {
   variable {}
 
-  array set kargs {-blocking 1 -sleep 100}
+  array set kargs {-blocking 1 -sleep 0}
   array set kargs $args
 
+  # -step 1
   #_sleep $this
   #TODO: catch errro
 
@@ -124,7 +125,6 @@ proc gearman::worker::work {this args} {
           return 1
           set next_stat @RETURN
         } elseif {$kargs(-sleep) == 0} {
-          debug "pre_sleep"
           set next_stat PRE_SLEEP
         } elseif {$kargs(-sleep) > 0} {
           debug "sleep $kargs(-sleep)"
@@ -151,6 +151,8 @@ proc gearman::worker::work {this args} {
 
       eof {
         # ...
+        debug "see eof"
+	break
       }
       timeout {
         # ...
@@ -192,16 +194,53 @@ proc gearman::worker::_work {this job func data} {
 
   set worker [instance $this] ;# TODO
 
+  set jobproc ::gearman::worker::job@$job
+  set token [interp alias {} $jobproc {} ::gearman::worker::jobcall $this $job]
+  set ok 0
+
   if [catch {
-    set result [uplevel #0 [list $callback $worker $data]]
+    set result [uplevel #0 [list $callback $jobproc $data]]
+    gearman::protocol::send $this WORK_COMPLETE $job $result
+    set ok 1
   } err] {
-    set result "Worker Error: $err"
-    puts $result
+    puts "Worker Error: $err"
+    # XXX: only forward to client when "OPTION_REQ exceptions" is set by client
+    if {1} {
+      gearman::protocol::send $this WORK_EXCEPTION $job $err
+    } else {
+      gearman::protocol::send $this WORK_FAIL $job
+    }
   }
 
-  # send $this WORK_DATA   $job $result
-  gearman::protocol::send $this WORK_COMPLETE $job $result
-  # send $this NO_JOB      $job $result
+  interp alias {} $token {}
+
+  return $ok
+}
+
+proc gearman::worker::jobcall {this job act args} {
+  switch -- $act {
+    "data" {
+       set data [lindex $args 0]
+       gearman::protocol::send $this WORK_DATA $job $data
+     }
+     "status" {
+       lassign $args numerator denominator
+       gearman::protocol::send $this WORK_STATUS $job $numerator $denominator
+     }
+     "warn" {
+       set data [lindex $args 0]
+       gearman::protocol::send $this WORK_WARNING $job $data
+     }
+     "fail" {
+       if {[llength $args]==0} {
+         gearman::protocol::send $this WORK_FAIL $job
+       } else {
+         set errmsg [lindex $args 0]
+         gearman::protocol::send $this WORK_EXCEPTION $job $errmsg
+       }
+     }
+  }
+  return
 }
 
 

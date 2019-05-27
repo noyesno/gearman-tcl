@@ -78,36 +78,52 @@ proc gearman::client::submit {this args} {
   }
 
   #TODO: add timeout
-  set data ""
+  set result ""
+  set data   ""
   for {set n 0} {1} {incr n} {
     set res [gearman::protocol::recv $this $kargs(-timeout)]
 
     switch -- [lindex $res 0] {
-      "JOB_CREATED" { debug "JOB $res" }
-      "WORK_DATA"   {
-        append data [lindex $res 1 1]
+      "JOB_CREATED" {
+        debug "JOB $res"
       }
-      "WORK_COMPLETE" -
-      "NO_JOB"      {
-        append data [lindex $res 1 1]
+      "WORK_COMPLETE" {
+        set result [lindex $res 1 1]
+      }
+      "WORK_FAIL" {
+        error "WORK_FAIL"
         break
       }
+      "WORK_EXCEPTION"   {
+        # TODO: -onerror
+        set result [lindex $res 1 1]
+        error "WORK_EXCEPTION: $result"
+        break
+      }
+      "WORK_DATA"   {
+        # TODO: -ondata
+        lassign [lindex $res 1] job partial_data  
+        append data $partial_data
+      }
+      "WORK_WARNING" {
+        puts "Warn: [lindex $res 1 1]"
+      }
       "WORK_STATUS" {
-        debug "STATUS: ..."
+        debug "Progress: [lindex $res 1]"
         #TODO# $kargs(-progress)
       }
-      "WORK_FAIL"        -
-      "WORK_EXCEPTION"   -
-      "WORK_WARNING"     -
       default       {
         # TODO:
-        set data $res
+        error "Error: unknown gearman protocol [lindex $res 0]"
         break
       }
     }
   }
-  debug "data = $data"
-  return $data
+  if {$data ne ""} {
+    debug "data   = $data"
+  }
+  debug "result = $result"
+  return $result
 }
 
 
