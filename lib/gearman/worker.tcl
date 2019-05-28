@@ -88,35 +88,74 @@ proc gearman::worker::register {this args} {
 proc gearman::worker::work {this args} {
   variable {}
 
-  array set kargs {-blocking 1 -sleep 0}
+  array set kargs {-blocking 1 -sleep 0 -uniq 0 -all 0}
   array set kargs $args
 
   # -step 1
-  #_sleep $this
-  #TODO: catch errro
+  # _sleep $this
+  # TODO: catch errro
 
-  set next_stat GRAB_JOB
+  if {$kargs(-uniq)} {
+    set cmd_grab GRAB_JOB_UNIQ
+  } elseif {$kargs(-all)} {
+    set cmd_grab GRAB_JOB_ALL
+  } else {
+    set cmd_grab GRAB_JOB
+  }
+
+  set next_stat $cmd_grab
   while 1 {
 
     ::update ;# to allow event loop triggered by worker
 
-    switch -- $next_stat {
+    set command $next_stat
+    switch -exact -- $command {
       ERROR {
         puts "Error: $err"
       }
 
+      GRAB_JOB_UNIQ -
+      GRAB_JOB_ALL  -
       GRAB_JOB {
-        gearman::protocol::send $this GRAB_JOB
+        gearman::protocol::send $this $command
         set reply     [gearman::protocol::recv $this]
         set next_stat [lindex $reply 0]
       }
 
       JOB_ASSIGN  {
 	debug "JOB $reply"
+        set uniq "" ; set reducer ""
 	lassign [lindex $reply 1] job func data
-	_work $this $job $func $data
 
-        set next_stat GRAB_JOB
+        set ($this,$job) [list -id $job -uniq $uniq -reducer $reducer]
+	_work $this $job $func $data
+        unset ($this,$job)
+
+        set next_stat $cmd_grab
+      }
+
+      JOB_ASSIGN_UNIQ  {
+	debug "JOB UNIQ $reply"
+        set uniq "" ; set reducer ""
+	lassign [lindex $reply 1] job func uniq data
+
+        set ($this,$job) [list -id $job -uniq $uniq -reducer $reducer]
+	_work $this $job $func $data
+        unset ($this,$job)
+
+        set next_stat $cmd_grab
+      }
+
+      JOB_ASSIGN_ALL  {
+	debug "JOB ALL $reply"
+        set uniq "" ; set reducer ""
+	lassign [lindex $reply 1] job func uniq reducer data
+
+        set ($this,$job) [list -id $job -uniq $uniq -reducer $reducer]
+	_work $this $job $func $data
+        unset ($this,$job)
+
+        set next_stat $cmd_grab
       }
 
       NO_JOB  {
@@ -129,11 +168,11 @@ proc gearman::worker::work {this args} {
         } elseif {$kargs(-sleep) > 0} {
           debug "sleep $kargs(-sleep)"
           after $kargs(-sleep)    ;# sleep some time
-          set next_stat GRAB_JOB
+          set next_stat $cmd_grab
         } else {
           debug "nosleep, grab"
           # ... continue ...
-          set next_stat GRAB_JOB
+          set next_stat $cmd_grab
         }
       }
 
@@ -146,7 +185,7 @@ proc gearman::worker::work {this args} {
 
       NOOP  {
         debug "noop"
-        set next_stat GRAB_JOB
+        set next_stat $cmd_grab
       }
 
       eof {
@@ -172,16 +211,6 @@ proc gearman::worker::_sleep {this} {
   gearman::protocol::send $this PRE_SLEEP
 }
 
-proc gearman::worker::jobinfo {this {key ""}} {
-  variable {}
-
-  if {$key eq ""} {
-    return $($this,jobinfo)
-  }
-
-  return $($this,jobinfo)  ;# TODO: return single item
-}
-
 proc gearman::worker::_work {this job func data} {
   variable {}
   # TODO: check $func existance
@@ -190,8 +219,6 @@ proc gearman::worker::_work {this job func data} {
 
   set callback $($this,callback,$func)
 
-  array set {} [list $this,jobinfo [list -id $job]]
-
   set worker [instance $this] ;# TODO
 
   set jobproc ::gearman::worker::job@$job
@@ -199,9 +226,14 @@ proc gearman::worker::_work {this job func data} {
   set ok 0
 
   if [catch {
+
+    dict set ($this,$job) -done 0
     set result [uplevel #0 [list $callback $jobproc $data]]
-    gearman::protocol::send $this WORK_COMPLETE $job $result
     set ok 1
+
+    if {![dict get $($this,$job) -done]} {
+      gearman::protocol::send $this WORK_COMPLETE $job $result
+    }
   } err] {
     puts "Worker Error: $err"
     # XXX: only forward to client when "OPTION_REQ exceptions" is set by client
@@ -212,34 +244,107 @@ proc gearman::worker::_work {this job func data} {
     }
   }
 
-  interp alias {} $token {}
+  if {0 && $ok} {
+    set reducer [dict get $($this,$job) -reducer]
+    if {$reducer ne ""} {
+      # aggregate
+      # submit $reducer $result
+    }
+  }
+
+  interp alias {} $token {}   ;# delete job alias
 
   return $ok
 }
 
 proc gearman::worker::jobcall {this job act args} {
+  variable {}
+
   switch -- $act {
+    "info" {
+      return $($this,$job)
+    }
     "data" {
        set data [lindex $args 0]
        gearman::protocol::send $this WORK_DATA $job $data
-     }
-     "status" {
-       lassign $args numerator denominator
-       gearman::protocol::send $this WORK_STATUS $job $numerator $denominator
-     }
-     "warn" {
-       set data [lindex $args 0]
-       gearman::protocol::send $this WORK_WARNING $job $data
-     }
-     "fail" {
-       if {[llength $args]==0} {
-         gearman::protocol::send $this WORK_FAIL $job
-       } else {
-         set errmsg [lindex $args 0]
-         gearman::protocol::send $this WORK_EXCEPTION $job $errmsg
-       }
-     }
-  }
+    }
+    "status" {
+      lassign $args numerator denominator
+      gearman::protocol::send $this WORK_STATUS $job $numerator $denominator
+    }
+    "warn" {
+      set data [lindex $args 0]
+      gearman::protocol::send $this WORK_WARNING $job $data
+    }
+    "fail" {
+      if {[llength $args]==0} {
+        gearman::protocol::send $this WORK_FAIL $job
+      } else {
+        set errmsg [lindex $args 0]
+        gearman::protocol::send $this WORK_EXCEPTION $job $errmsg
+      }
+    }
+
+    "done" {
+      set result [lindex $args 0]
+      gearman::protocol::send $this WORK_COMPLETE $job $result
+      dict set ($this,$job) -done 1
+    }
+
+    "wait" {
+      set done 0
+      while 1 {
+        if {$done} break
+        set done 1
+        dict for {job_id job_result} [dict get $($this,$job) reducer] {
+          if {$job_result eq ""} {
+            # job not done
+            set done 0
+            break
+          }
+        } ;# end check jobs
+      } ;# end while
+    }
+
+    "map" {
+      # TODO:
+      lassign $args task data
+      set uuid ""
+      gearman::protocol::send $this SUBMIT_JOB $task $uuid $data
+
+      set reply [gearman::protocol::recv $this]
+      set reply_cmd [lindex $reply 0]
+      if {$reply_cmd eq "JOB_CREATED"} {
+        set map_jobid [lindex $reply 1]
+        dict set ($this,$job) reducer $map_jobid ""
+      } else {
+        # TODO: Error
+      }
+    }
+
+    "submit" {
+      # TODO:
+      lassign $args task data
+      set uuid ""
+      gearman::protocol::send $this SUBMIT_JOB $task $uuid $data
+
+      set reply [gearman::protocol::recv $this]
+      set reply_cmd [lindex $reply 0]
+      if {$reply_cmd eq "JOB_CREATED"} {
+        set map_jobid [lindex $reply 1]
+        # XXX: forget it
+      } else {
+        # TODO: Error
+      }
+    }
+
+    "reduce" {
+      lassign $args data
+      set uuid ""
+      set task [dict get $($this,$job) -reducer]
+      gearman::protocol::send $this SUBMIT_JOB $task $uuid $data
+    }
+  } ;# end switch
   return
 }
 
@@ -255,7 +360,7 @@ proc gearman::worker::unknown {args} {
 namespace eval gearman::worker {
   namespace ensemble create \
     -map        {submit "submit"} \
-    -subcommand {"create" "submit" "close" "config" "jobinfo"} \
+    -subcommand {"create" "submit" "close" "config"} \
     -unknown ::gearman::worker::unknown
 }
 
